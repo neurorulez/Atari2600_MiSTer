@@ -158,7 +158,7 @@ localparam CONF_STR = {
 	"ODE,Paddle map,X1+X2 X3+X4,X1+X3 X2+X4,X1+Y1 X2+Y2,X1-Y1 X2-Y2;",
 	"OF,Paddle swap,No,Yes;",
 	"OG,Swap Joysticks,No,Yes;",
-	"H0OH,Serial Mode,None,SNAC;",
+	"OH,Serial Mode,None,SNAC;",
 	"H0OI,SNAC Mode, 1 Player, 2 Players;",		
 	"H0OJ,Paddle ADC,No,Yes;",	
 	"R0,Reset;",
