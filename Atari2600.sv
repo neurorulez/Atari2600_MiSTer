@@ -117,14 +117,15 @@ module emu
 	// 1 - D-/TX
 	// 2..6 - USR2..USR6
 	// Set USER_OUT to 1 to read from USER_IN.
-	input   [6:0] USER_IN,
-	output  [6:0] USER_OUT,
+	output  [2:0] USER_MODE,
+	input   [7:0] USER_IN,
+	output  [7:0] USER_OUT,
 
 	input         OSD_STATUS
 );
 
 assign ADC_BUS  = 'Z;
-assign USER_OUT = '1;
+//assign USER_OUT = '1;
 assign {UART_RTS, UART_TXD, UART_DTR} = 0;
 assign {DDRAM_CLK, DDRAM_BURSTCNT, DDRAM_ADDR, DDRAM_DIN, DDRAM_BE, DDRAM_RD, DDRAM_WE} = '0;
 assign {SDRAM_A, SDRAM_BA, SDRAM_CLK, SDRAM_CKE, SDRAM_DQML, SDRAM_DQMH, SDRAM_nWE, SDRAM_nCAS, SDRAM_nRAS, SDRAM_nCS} = 6'b111111;
@@ -156,6 +157,10 @@ localparam CONF_STR = {
 	"OBC,Control,Joystick,Paddle,Auto(Single);",
 	"ODE,Paddle map,X1+X2 X3+X4,X1+X3 X2+X4,X1+Y1 X2+Y2,X1-Y1 X2-Y2;",
 	"OF,Paddle swap,No,Yes;",
+	"OG,Swap Joysticks,No,Yes;",
+	"H0OH,Serial Mode,None,SNAC;",
+	"H0OI,SNAC Mode, 1 Player, 2 Players;",		
+	"H0OJ,Paddle ADC,No,Yes;",	
 	"R0,Reset;",
 	"J1,Fire,Paddle1(x),Paddle2(y),Game Reset,Game Select;",
 	"V,v",`BUILD_DATE
@@ -192,7 +197,7 @@ wire reset = RESET | status[0] | buttons[1] | ioctl_download;
 
 
 //////////////////   HPS I/O   ///////////////////
-wire [15:0] joy_0,joy_1,joy_2,joy_3;
+wire [15:0] joy_0_USB,joy_1_USB,joy_2_USB,joy_3_USB;
 wire [15:0] joya_0,joya_1,joya_2,joya_3;
 wire  [1:0] buttons;
 wire [31:0] status;
@@ -207,6 +212,11 @@ wire [31:0] ioctl_file_ext;
 
 wire        forced_scandoubler;
 
+wire [15:0] joy_0 = raw_serial               ? joyA_raw  : joy_0_USB;
+wire [15:0] joy_1 = raw_serial & raw_serial2 ? joyB_raw  : raw_serial ? joy_1_USB : joy_0_USB;
+wire [15:0] joy_2 = raw_serial & raw_serial2 ? joy_0_USB : raw_serial ? joy_1_USB : joy_2_USB;
+wire [15:0] joy_3 = raw_serial & raw_serial2 ? joy_1_USB : raw_serial ? joy_2_USB : joy_3_USB;
+
 hps_io #(.STRLEN($size(CONF_STR)>>3)) hps_io
 (
 	.clk_sys(clk_sys),
@@ -214,10 +224,10 @@ hps_io #(.STRLEN($size(CONF_STR)>>3)) hps_io
 
 	.conf_str(CONF_STR),
 
-	.joystick_0(joy_0),
-	.joystick_1(joy_1),
-	.joystick_2(joy_2),
-	.joystick_3(joy_3),
+	.joystick_0(joy_0_USB),
+	.joystick_1(joy_1_USB),
+	.joystick_2(joy_2_USB),
+	.joystick_3(joy_3_USB),
 	.joystick_analog_0(joya_0),
 	.joystick_analog_1(joya_1),
 	.joystick_analog_2(joya_2),
@@ -225,6 +235,7 @@ hps_io #(.STRLEN($size(CONF_STR)>>3)) hps_io
 
 	.buttons(buttons),
 	.status(status),
+	.status_menumask({~raw_serial}),
 	.forced_scandoubler(forced_scandoubler),
 
 	.ps2_kbd_led_use(0),
@@ -293,15 +304,83 @@ assign AUDIO_L = AUDIO_R;
 assign AUDIO_S = 0;
 assign AUDIO_MIX = 0;
 
-wire p_1 = status[14] ? ~j0[5] : ~|j0[6:5];
-wire p_2 = status[14] ? ~j0[6] : status[13] ? ~|joy_2[6:5] : ~|joy_1[6:5];
-wire p_3 = status[14] ? ~joy_1[5] : status[13] ? ~|joy_1[6:5] : ~|joy_2[6:5];
-wire p_4 = status[14] ? ~joy_1[6] : ~|joy_3[6:5];
+wire joy_swap    = status[16];
+wire raw_serial  = status[17];
+wire raw_serial2 = status[18];
+wire raw_ADC = status[19];
+
+wire p_1 = raw_ADC               ? padA_raw[0] : (status[14] ? ~j0[5] : ~|j0[6:5]);
+wire p_2 = raw_ADC               ? padA_raw[1] : (status[14] ? ~j0[6] : status[13] ? ~|joy_2[6:5] : ~|joy_1[6:5]);
+wire p_3 = raw_ADC & raw_serial2 ? padB_raw[0] : status[14] ? ~joy_1[5] : status[13] ? ~|joy_1[6:5] : ~|joy_2[6:5];
+wire p_4 = raw_ADC & raw_serial2 ? padB_raw[1] : status[14] ? ~joy_1[6] : ~|joy_3[6:5];
 
 wire [7:0] paddle_1 = ax;
 wire [7:0] paddle_2 = status[14] ? (status[13] ? ~ay : ay) : status[13] ? joya_2[7:0] : joya_1[7:0];
 wire [7:0] paddle_3 = status[14] ? joya_1[7:0] : status[13] ? joya_1[7:0] : joya_2[7:0];
 wire [7:0] paddle_4 = status[14] ? (status[13] ? ~joya_1[15:8] : joya_1[15:8]) : joya_3[7:0];
+
+
+wire [4:0] joy_raw, joy1_raw,joy2_raw;
+wire [1:0] pad_raw, pad1_raw,pad2_raw;
+reg [4:0] joy_delay;
+reg JOY_SPLIT = 1'b1;
+
+always @(posedge &joy_delay)
+begin
+	JOY_SPLIT <= ~JOY_SPLIT;
+end
+
+always @(posedge &joy_delay)
+begin
+		if (JOY_SPLIT) begin
+			joy1_raw[0] = USER_IN[2]; //.p1_r( 3 [3]
+			joy1_raw[1] = USER_IN[1]; //.p1_l( 5 [5]
+			joy1_raw[2] = USER_IN[7]; //.p1_d( 0 [0]
+			joy1_raw[3] = USER_IN[5]; //.p1_u( 1 [1]
+			joy1_raw[4] = USER_IN[3]; //.p1_f( 2 [2]
+			pad1_raw[0] = USER_IN[1]; //l        [5]
+			pad1_raw[1] = USER_IN[2]; //r        [3]
+		end else begin
+			joy2_raw[0] = USER_IN[2]; //.p1_r( 3 [3]
+			joy2_raw[1] = USER_IN[1]; //.p1_l( 5 [5]
+			joy2_raw[2] = USER_IN[7]; //.p1_d( 0 [0]
+			joy2_raw[3] = USER_IN[5]; //.p1_u( 1 [1]
+			joy2_raw[4] = USER_IN[3]; //.p1_f( 2 [2]
+			pad2_raw[0] = USER_IN[1]; //l        [5]
+			pad2_raw[1] = USER_IN[2]; //r        [3]
+		end
+end
+
+wire [4:0] joyA_raw,joyB_raw;
+wire [1:0] padA_raw,padB_raw;
+
+always @(posedge clk_sys) begin
+	if (raw_serial & !raw_serial2) begin
+		USER_OUT   <= 8'b11111111;
+		USER_MODE  <= 3'b00;
+		joy_raw[0] <= USER_IN[2]; //.p1_r( 3 [3]
+		joy_raw[1] <= USER_IN[1]; //.p1_l( 5 [5]
+		joy_raw[2] <= USER_IN[7]; //.p1_d( 0 [0]
+		joy_raw[3] <= USER_IN[5]; //.p1_u( 1 [1]
+		joy_raw[4] <= USER_IN[3]; //.p1_f( 2 [2]
+		pad_raw[0] <= USER_IN[1]; //l        [5]
+		pad_raw[1] <= USER_IN[2]; //r        [3]
+		joyA_raw   <= joy_swap ? '0 : joy_raw;
+		joyB_raw   <= joy_swap ? joy_raw : '0;
+		padA_raw   <= pad_raw;
+	end else if (raw_serial & raw_serial2) begin
+		USER_OUT   <= {3'b111,JOY_SPLIT,4'b1111};
+		USER_MODE  <=	3'b100;
+		joy_delay  <= joy_delay+1;
+		joyA_raw   <= joy_swap ? joy2_raw : joy1_raw;
+		joyB_raw   <= joy_swap ? joy1_raw : joy2_raw;
+		padA_raw   <= pad1_raw;
+		padB_raw   <= pad2_raw;
+		end else begin
+		USER_OUT   <= 8'b11111111;
+		USER_MODE  <= 3'b000;		
+	end
+end
 
 A2601top A2601top
 (
@@ -407,9 +486,14 @@ video_mixer #(.LINE_LENGTH(250)) video_mixer
 
 //////////////////   ANALOG AXIS   ///////////////////
 reg        emu = 0;
-wire [7:0] ax = emu ? mx[7:0] : joya_0[7:0];
-wire [7:0] ay = emu ? my[7:0] : joya_0[15:8];
+//wire [7:0] ax = emu ? mx[7:0] : joya_0[7:0];
+//wire [7:0] ay = emu ? my[7:0] : joya_0[15:8];
+wire [7:0] ax = raw_ADC ? serx : (emu ? mx[7:0] : joya_0[7:0]);
+wire [7:0] ay = raw_ADC ? sery : (emu ? my[7:0] : joya_0[15:8]);
 wire [8:0] j0 = emu ? {1'b0, ps2_mouse[2:0], joy_0[4:0]} : joy_0[8:0];
+
+wire signed [7:0] serx = (((dout2[11:0] - 300) * 255) / 1200) - 128;
+wire signed [7:0] sery = (((dout2[23:12] - 300) * 255) / 1200) - 128;
 
 reg  signed [8:0] mx = 0;
 wire signed [8:0] mdx = {ps2_mouse[4],ps2_mouse[4],ps2_mouse[15:9]};
@@ -423,6 +507,21 @@ wire signed [8:0] nmy = my + mdy2;
 
 always @(posedge clk_sys) begin
 	reg old_stb = 0;
+
+	//limit the range of the adc
+	if (dout[11:0] < 9'd300 || dout[11:0] > 13'd1500) begin
+		if (dout[11:0] < 9'd300) dout2[11:0] <= 9'd300;		
+		else if (dout[11:0] > 13'd1500) dout2[11:0] <= 13'd1500;
+	end else begin
+		dout2[11:0] <= dout[11:0];
+	end
+	//other paddle
+	if (dout[23:12] < 9'd300 || dout[23:12] > 13'd1500) begin
+		if (dout[23:12] < 9'd300) dout2[23:12] <= 13'd1500;
+		else if (dout[23:12] > 13'd1500) dout2[23:12] <= 13'd1500;		
+	end else begin
+		dout2[23:12] <= dout[23:12];
+	end
 	
 	old_stb <= ps2_mouse[24];
 	if(old_stb != ps2_mouse[24]) begin
@@ -437,5 +536,17 @@ always @(posedge clk_sys) begin
 		my <= 0;
 	end
 end
+
+//adc
+wire tape_sync;
+reg   [23:0] dout2;
+reg   [23:0] dout;
+ltc2308 ltc2308
+(
+	.clk(CLK_50M),
+	.ADC_BUS(ADC_BUS),
+	.dout_sync(tape_sync),
+	.dout(dout)
+);
 
 endmodule
