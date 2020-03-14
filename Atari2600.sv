@@ -365,15 +365,15 @@ always @(posedge clk_sys) begin
 		joy_raw[4] <= USER_IN[3]; //.p1_f( 2 [2]
 		pad_raw[0] <= USER_IN[1]; //l        [5]
 		pad_raw[1] <= USER_IN[2]; //r        [3]
-		joyA_raw   <= joy_swap ? '0 : joy_raw;
-		joyB_raw   <= joy_swap ? joy_raw : '0;
+		joyA_raw   <= joy_swap ? '0 : ~joy_raw;
+		joyB_raw   <= joy_swap ? ~joy_raw : '0;
 		padA_raw   <= pad_raw;
 	end else if (raw_serial & raw_serial2) begin
 		USER_OUT   <= {3'b111,JOY_SPLIT,4'b1111};
 		USER_MODE  <=	3'b100;
 		joy_delay  <= joy_delay+1;
-		joyA_raw   <= joy_swap ? joy2_raw : joy1_raw;
-		joyB_raw   <= joy_swap ? joy1_raw : joy2_raw;
+		joyA_raw   <= joy_swap ? ~joy2_raw : ~joy1_raw;
+		joyB_raw   <= joy_swap ? ~joy1_raw : ~joy2_raw;
 		padA_raw   <= pad1_raw;
 		padB_raw   <= pad2_raw;
 		end else begin
